@@ -1,0 +1,12 @@
+pandas
+langchain-ollama
+langchain-community
+langchain-openai
+openpyxl
+python-dotenv
+gradio
+langchain-huggingface
+pytesseract
+pdf2image
+numpy
+sentence-transformers
