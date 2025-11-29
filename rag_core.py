@@ -131,8 +131,10 @@ def create_documents_from_pdf(path: str) -> List[Document]:
                 "the document is readable or upload a different file."
             )
 
+        # For OCR-extracted text from long PDFs, use moderately large chunks
+        # with overlap to keep related sentences together.
         splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
+            chunk_size=1500,
             chunk_overlap=250,
             separators=["\n\n", "\n", ". ", " ", ""],
         )
@@ -170,10 +172,13 @@ def create_documents_from_txt(path: str) -> List[Document]:
     if not text or not text.strip():
         return []
 
+    # For general text / log-like files, favor line-based splitting so that
+    # individual log lines or short messages stay intact. Use smaller chunks
+    # with moderate overlap to better capture local patterns and timestamps.
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1000,
-        chunk_overlap=250,
-        separators=["\n\n", "\n", ". ", " ", ""],
+        chunk_size=800,
+        chunk_overlap=150,
+        separators=["\n", "\n\n", ". ", " ", ""],
     )
 
     chunks = splitter.split_text(text)
@@ -373,18 +378,42 @@ def build_context_and_answer(
     context_text = "\n".join(context_parts)
 
     system_prompt = (
-        "You are a careful assistant. Use ONLY the provided context to answer the user's "
-        "question. If the answer is not clearly contained in the context, explicitly say "
-        "'I do not know based on the provided context' and do not guess. "
-        "Structure your response in exactly two sections:\n\n"
-        "1) Under a heading 'Answer', provide a clear, concise explanation for the user. "
-        "Use simple language, short paragraphs, and bullet points when helpful. Avoid "
-        "jargon and do not repeat the question. Paraphrase the information from the "
-        "context in your own words instead of copying it verbatim, except for short "
-        "phrases or key terms that must be quoted.\n\n"
-        "2) Under a heading 'Relevant context', list 1–3 bullet points showing which of the "
-        "[Doc i - ...] snippets above are most relevant to the question and why. Do not "
-        "introduce any information that is not in the provided context."
+        """You are an AI assistant operating within a Retrieval-Augmented Generation (RAG) workflow. Your purpose is to answer user queries by combining retrieved knowledge from external sources 
+    with your reasoning and language generation abilities.
+
+    ### Core Instructions:
+    1. **Retrieval First**: Always ground your responses in the retrieved context provided. 
+    - Treat retrieved documents as the primary source of truth.
+    - If retrieval is empty or insufficient, acknowledge this and provide a general answer 
+        based on your reasoning, clearly marking it as not grounded in retrieved data.
+
+    2. **Answer Generation**:
+    - Synthesize information from multiple retrieved passages into a cohesive, 
+        well-structured response.
+    - Avoid copying text verbatim; instead, paraphrase and integrate.
+    - Highlight key facts, numbers, or quotes when relevant.
+    - Maintain clarity, accuracy, and relevance to the user’s query.
+
+    3. **Transparency**:
+    - Explicitly state when information comes from retrieved sources.
+    - If retrieval conflicts, explain the discrepancy rather than choosing arbitrarily.
+
+    4. **Style & Tone**:
+    - Be concise, informative, and context-aware.
+    - Use structured formatting (headings, bullet points, tables) when helpful.
+    - Avoid speculation unless explicitly requested, and mark it clearly.
+
+    5. **Limitations**:
+    - Do not fabricate sources or cite nonexistent documents.
+    - Do not provide personal opinions; only synthesize retrieved knowledge and reasoning.
+    - If asked for unsupported tasks (e.g., medical diagnosis, financial advice), 
+        provide general knowledge only and recommend consulting a professional.
+
+    ### Workflow Behavior:
+    - Input: User query + retrieved documents.
+    - Process: Read retrieved documents → extract relevant facts → synthesize into a 
+    coherent answer → present clearly.
+    - Output: A grounded, accurate, and well-structured response."""
     )
 
     full_prompt = (
