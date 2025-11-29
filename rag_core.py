@@ -417,6 +417,26 @@ def build_context_and_answer(
                 "The model returned an unhelpful answer. Here is the retrieved context instead:\n\n"
                 + context_text
             )
+
+        refinement_prompt = (
+            "You are an editor. Improve the following answer to make it clearer, more readable, "
+            "and appropriate for a non-technical user. Do not introduce any new facts or "
+            "speculation; only rephrase and slightly restructure what is already there. "
+            "Preserve any references such as [Doc i - ...] and important numbers or names.\n\n"
+            f"Question: {question}\n\n"
+            "Original answer:\n"
+            f"{answer}\n\n"
+            "Return only the improved answer."
+        )
+
+        try:
+            refined_response = selected_model.invoke(refinement_prompt)
+            refined_answer = getattr(refined_response, "content", None)
+            if refined_answer and len(refined_answer.strip()) >= 20:
+                return refined_answer
+        except Exception:
+            pass
+
         return answer
     except Exception as e:
         return (
