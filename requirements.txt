@@ -13,3 +13,4 @@ pytesseract
 pdf2image
 numpy
 sentence-transformers
+tf-keras
