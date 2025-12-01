@@ -31,6 +31,19 @@ vector_store_cache = {}
 load_dotenv()
 
 
+def _history_to_markdown(history) -> str:
+    """Render chat history (list of [user, assistant]) as Markdown."""
+    if not history:
+        return ""
+    lines = []
+    for pair in history:
+        if not pair or len(pair) < 2:
+            continue
+        q, a = pair[0], pair[1]
+        lines.append(f"**You:** {q}\n\n**Assistant:** {a}")
+    return "\n\n---\n\n".join(lines)
+
+
 def build_vector_store_for_file(file_path: str) -> tuple[FAISS, str]:
     ext = os.path.splitext(file_path)[1].lower()
 
@@ -85,25 +98,28 @@ def on_file_upload(file):
     return f"File uploaded: {os.path.basename(file.name)}. You can now ask questions."
 
 
-def answer_question(file, question: str):
-    """Gradio handler that streams status + answer so the user sees progress."""
+def answer_question(file, question: str, history):
+    """Gradio handler that streams status + answer and maintains chat history."""
+    # Ensure history is always a list of [user, assistant] pairs (lists, not tuples)
+    history = history or []
+
     if not question.strip():
         # Immediate feedback when no question is provided
-        yield "Please enter a question.", ""
+        yield "Please enter a question.", _history_to_markdown(history), history
         return
 
     # Initial status while we start preparing the vector store
-    yield "Preparing vector store... 0%", ""
+    yield "Preparing vector store... 0%", _history_to_markdown(history), history
 
     if file is None:
-        yield "Please upload a file first.", ""
+        yield "Please upload a file first.", _history_to_markdown(history), history
         return
 
     file_path = file.name
     try:
         stat = os.stat(file_path)
     except Exception as e:
-        yield f"Error accessing uploaded file: {e}", ""
+        yield f"Error accessing uploaded file: {e}", _history_to_markdown(history), history
         return
 
     # Per-file cache key based on path and modification time
@@ -123,7 +139,7 @@ def answer_question(file, question: str):
     if cache_key in vector_store_cache:
         vector_store = vector_store_cache[cache_key]
         status_msg = f"Using cached FAISS index for {os.path.basename(file_path)}. 100%"
-        yield status_msg, ""
+        yield status_msg, _history_to_markdown(history), history
     else:
         # 2) Try loading from disk if index exists
         if os.path.exists(index_path):
@@ -139,10 +155,10 @@ def answer_question(file, question: str):
                 status_msg = (
                     f"Loaded FAISS index from disk for {os.path.basename(file_path)}. 100%"
                 )
-                yield status_msg, ""
+                yield status_msg, _history_to_markdown(history), history
             except Exception as e:
                 # If loading fails, fall back to rebuilding
-                yield f"Error loading existing index, rebuilding: {e}", ""
+                yield f"Error loading existing index, rebuilding: {e}", _history_to_markdown(history), history
                 vector_store = None
 
         # 3) Build a new index with progress if needed
@@ -166,11 +182,11 @@ def answer_question(file, question: str):
                     documents = create_documents_from_txt(file_path)
                     source_desc = f"TXT with {len(documents)} chunks"
                 else:
-                    yield f"Unsupported file type: {ext}", ""
+                    yield f"Unsupported file type: {ext}", _history_to_markdown(history), history
                     return
 
                 if not documents:
-                    yield "No content found in the uploaded file to index.", ""
+                    yield "No content found in the uploaded file to index.", _history_to_markdown(history), history
                     return
 
                 embeddings = get_embeddings_model()
@@ -195,7 +211,8 @@ def answer_question(file, question: str):
                     yield (
                         f"Preparing vector store... {progress}% "
                         f"({start + 1}-{end} of {total_docs} documents)",
-                        "",
+                        _history_to_markdown(history),
+                        history,
                     )
 
                 vector_store = faiss_store
@@ -216,19 +233,19 @@ def answer_question(file, question: str):
                         f"but failed to save index: {e}. 100%"
                     )
 
-                yield status_msg, ""
+                yield status_msg, _history_to_markdown(history), history
             except Exception as e:
-                yield f"Error building FAISS index: {e}", ""
+                yield f"Error building FAISS index: {e}", _history_to_markdown(history), history
                 return
 
     if vector_store is None:
-        yield "Error: vector store is not available.", ""
+        yield "Error: vector store is not available.", _history_to_markdown(history), history
         return
 
     # Delegate retrieval, thresholding, logging, and answer generation
     # to the shared core so UI and CLI behave identically.
     try:
-        yield status_msg + "\nRunning model...", ""
+        yield status_msg + "\nRunning model...", _history_to_markdown(history), history
         answer = build_context_and_answer(
             vector_store,
             question,
@@ -236,10 +253,17 @@ def answer_question(file, question: str):
             openai_model_name,
             ollama_model,
             ollama_model_name,
+            history,
         )
-        yield status_msg, answer
+        # Update chat history with the new QA pair
+        history = history or []
+        history.append([question, answer])
+        yield status_msg, _history_to_markdown(history), history
     except Exception as e:
-        yield status_msg, f"Error while generating answer: {e}"
+        err_msg = f"Error while generating answer: {e}"
+        history = history or []
+        history.append([question, err_msg])
+        yield status_msg, _history_to_markdown(history), history
 
 
 def build_interface():
@@ -259,17 +283,19 @@ def build_interface():
             )
 
         upload_status = gr.Markdown(label="Upload status", value="No file uploaded yet.")
+        chat_markdown = gr.Markdown(label="Conversation")
         question = gr.Textbox(label="Your question", lines=2)
         status = gr.Markdown(label="Status / Logs")
-        answer = gr.Markdown(label="Answer")
+
+        history_state = gr.State([])
 
         file_input.change(fn=on_file_upload, inputs=file_input, outputs=upload_status)
 
         ask_btn = gr.Button("Ask")
         ask_btn.click(
             fn=answer_question,
-            inputs=[file_input, question],
-            outputs=[status, answer],
+            inputs=[file_input, question, history_state],
+            outputs=[status, chat_markdown, history_state],
         )
 
     return demo

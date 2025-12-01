@@ -42,6 +42,8 @@ def main() -> None:
     print("\nYou can now ask questions about the file.")
     print("Type 'quit', 'exit', or 'q' to stop.\n")
 
+    history: list[tuple[str, str]] = []
+
     while True:
         try:
             question = input("Your question: ").strip()
@@ -58,7 +60,9 @@ def main() -> None:
                 openai_model_name,
                 ollama_model,
                 ollama_model_name,
+                history,
             )
+            history.append((question, answer))
             print("\nAnswer:\n")
             print(answer)
             print("\n" + "-" * 60 + "\n")
