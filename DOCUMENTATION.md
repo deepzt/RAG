@@ -6,15 +6,16 @@
 3. [Installation](#installation)
 4. [Configuration](#configuration)
 5. [Core Components](#core-components)
-6. [Usage](#usage)
-7. [API Reference](#api-reference)
-8. [Troubleshooting](#troubleshooting)
-9. [Performance Considerations](#performance-considerations)
-10. [License](#license)
+6. [Voice Interaction](#voice-interaction)
+7. [Usage](#usage)
+8. [API Reference](#api-reference)
+9. [Troubleshooting](#troubleshooting)
+10. [Performance Considerations](#performance-considerations)
+11. [License](#license)
 
 ## Introduction
 
-The RAG (Retrieval-Augmented Generation) application is a powerful tool that combines the capabilities of large language models with efficient document retrieval. It allows users to upload various document types (PDF, TXT, CSV, Excel) and ask questions about their content, receiving accurate and contextually relevant answers.
+The RAG (Retrieval-Augmented Generation) application is a powerful tool that combines the capabilities of large language models with efficient document retrieval. It allows users to upload various document types (PDF, TXT, CSV, Excel) and ask questions about their content, receiving accurate and contextually relevant answers. The application now features voice interaction capabilities, allowing for hands-free operation and accessibility.
 
 ## System Architecture
 
@@ -24,10 +25,10 @@ The RAG (Retrieval-Augmented Generation) application is a powerful tool that com
 ┌─────────────────┐    ┌───────────────────┐    ┌───────────────────┐
 │  Document Input │───▶│  Document Loading  │───▶│  Text Splitting   │
 └─────────────────┘    └───────────────────┘    └────────┬──────────┘
-                                                        │
+                                                         │
 ┌─────────────────┐    ┌───────────────────┐    ┌───────▼──────────┐
 │  User Question  │    │  Query Processing │    │  Vector Store    │
-│                 │───▶│  & Rewriting      │◀───┤  (FAISS)         │
+│  (Text/Voice)   │───▶│  & Rewriting      │◀───┤  (FAISS)         │
 └─────────────────┘    └────────┬──────────┘    └────────┬──────────┘
                                 │                        │
                         ┌───────▼────────────────────────▼──────────┐
@@ -35,10 +36,10 @@ The RAG (Retrieval-Augmented Generation) application is a powerful tool that com
                         │          Context Integration              │
                         └───────────────────┬────────────────────────┘
                                             │
-                                    ┌───────▼──────────┐
-                                    │  Response        │
-                                    │  Generation      │
-                                    └──────────────────┘
+                                    ┌───────▼──────────┐    ┌────────────────┐
+                                    │  Response        │    │  Voice Output  │
+                                    │  Generation      │───▶│  (Text-to-Speech) │
+                                    └──────────────────┘    └────────────────┘
 ```
 
 ### Components
@@ -47,6 +48,12 @@ The RAG (Retrieval-Augmented Generation) application is a powerful tool that com
    - Handles multiple file formats (PDF, TXT, CSV, Excel)
    - Text extraction and cleaning
    - Chunking of documents for efficient retrieval
+
+2. **Voice Interaction**
+   - Voice input for questions (speech-to-text)
+   - Text-to-speech for responses
+   - Real-time voice control
+   - Stop functionality for voice output
 
 2. **Vector Store**
    - FAISS-based vector database for efficient similarity search
@@ -62,6 +69,32 @@ The RAG (Retrieval-Augmented Generation) application is a powerful tool that com
    - Gradio-based web interface
    - Support for file uploads
    - Interactive chat interface
+
+## Voice Interaction
+
+The application includes comprehensive voice interaction capabilities:
+
+### Voice Input
+- Click the 🎤 button to start voice recording
+- Speak your question clearly into the microphone
+- The application will convert your speech to text automatically
+- Press Enter or click Send to submit your question
+
+### Voice Output
+- Responses can be read aloud using text-to-speech
+- Toggle voice output on/off using the "Enable Voice Output" checkbox
+- Click the "Stop" button to immediately stop voice output
+
+### Voice Controls
+- **Start Recording**: Click the microphone button
+- **Stop Recording**: Click the microphone button again or wait 5 seconds
+- **Stop Speech**: Click the red "Stop" button to halt voice output
+- **Toggle Voice Output**: Use the checkbox to enable/disable text-to-speech
+
+### Requirements
+- Microphone for voice input
+- Speakers or headphones for voice output
+- Internet connection for speech recognition (Google's Web Speech API)
 
 ## Installation
 
