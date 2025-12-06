@@ -478,20 +478,22 @@ def build_interface():
         )
 
         # Handle question submission
-        def on_ask_click(question, history, vs):
+        def on_ask_click(question, history, vs, model_choice_val):
             if not question.strip():
-                return "Please enter a question.", history
+                return "Please enter a question.", history, None
             if vs is None:
-                return "Please upload a document first.", history
+                return "Please upload a document first.", history, None
                 
             try:
                 # Get the appropriate model based on user choice
-                model_choice_val = model_choice.value if hasattr(model_choice, 'value') else "Local (Ollama)"
-                
                 if model_choice_val == "OpenAI (if API key available)":
+                    if openai_model is None:
+                        return "OpenAI API key not found. Please check your .env file or switch to Local (Ollama).", history, None
                     model = openai_model
                     model_name = openai_model_name
                 else:
+                    if ollama_model is None:
+                        return "Ollama model not available. Make sure Ollama is running and the model is downloaded.", history, None
                     model = ollama_model
                     model_name = ollama_model_name
                 
@@ -499,10 +501,10 @@ def build_interface():
                 response = build_context_and_answer(
                     vector_store=vs,
                     question=question,
-                    openai_model=model if model_choice_val == "OpenAI (if API key available)" else None,
-                    openai_model_name=model_name if model_choice_val == "OpenAI (if API key available)" else None,
-                    ollama_model=model if model_choice_val == "Local (Ollama)" else None,
-                    ollama_model_name=model_name if model_choice_val == "Local (Ollama)" else None,
+                    openai_model=openai_model if model_choice_val == "OpenAI (if API key available)" else None,
+                    openai_model_name=openai_model_name if model_choice_val == "OpenAI (if API key available)" else None,
+                    ollama_model=ollama_model if model_choice_val == "Local (Ollama)" else None,
+                    ollama_model_name=ollama_model_name if model_choice_val == "Local (Ollama)" else None,
                     history=history,
                 )
                 
@@ -515,25 +517,61 @@ def build_interface():
                 if voice_enabled:
                     threading.Thread(target=_speak_text, args=(response,)).start()
                 
-                return "", history
+                return "", history, None
                 
             except Exception as e:
                 error_msg = f"Error: {str(e)}"
                 history = history or []
                 history.append((question, error_msg))
-                return "", history
+                return "", history, None
 
         # Connect the ask button
         ask_btn = gr.Button("Ask")
         ask_btn.click(
             fn=on_ask_click,
-            inputs=[question, history_state, vector_store],
-            outputs=[question, chatbot]
+            inputs=[question, history_state, vector_store, model_choice],
+            outputs=[question, chatbot, status]
+        )
+        
+        # Connect the send button
+        submit_btn.click(
+            fn=on_ask_click,
+            inputs=[msg, history_state, vector_store, model_choice],
+            outputs=[msg, chatbot, status]
+        )
+        
+        # Connect Enter key in the message input
+        msg.submit(
+            fn=on_ask_click,
+            inputs=[msg, history_state, vector_store, model_choice],
+            outputs=[msg, chatbot, status]
         )
 
     return demo
 
 
 if __name__ == "__main__":
-    demo = build_interface()
-    demo.launch(server_name="0.0.0.0", server_port=7860, share=False)
+    import signal
+    import sys
+    
+    def handle_sigint(signum, frame):
+        print("\nShutting down gracefully...")
+        sys.exit(0)
+    
+    # Register signal handler for clean shutdown
+    signal.signal(signal.SIGINT, handle_sigint)
+    
+    try:
+        demo = build_interface()
+        # Set inbrowser=False to prevent opening a new browser tab
+        demo.launch(
+            server_name="0.0.0.0",
+            server_port=7860,
+            share=False,
+            inbrowser=False,
+            show_error=True,
+            debug=True
+        )
+    except Exception as e:
+        print(f"Error launching the app: {str(e)}")
+        sys.exit(1)
