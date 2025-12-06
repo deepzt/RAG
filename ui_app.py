@@ -339,17 +339,15 @@ def build_interface():
         with gr.Row():
             with gr.Column(scale=3):
                 file_output = gr.File(label="Upload a document")
+                # File upload button
                 file_upload = gr.UploadButton(
                     "📁 Upload Document",
                     file_types=[".txt", ".pdf", ".csv", ".xls", ".xlsx"],
                     file_count="single",
                 )
-                file_upload.upload(
-                    on_file_upload,
-                    inputs=[file_upload],
-                    outputs=[file_output],
-                )
                 
+                # File upload handler will be defined after the components
+
                 model_choice = gr.Radio(
                     ["OpenAI (if API key available)", "Local (Ollama)"],
                     label="Choose AI Model",
@@ -456,21 +454,25 @@ def build_interface():
 
         history_state = gr.State([])
 
-        # Connect the file upload button
+        # Single file upload handler
         def handle_file_upload(file):
             if file is None:
                 return None, None, "No file uploaded yet."
+            
             try:
-                # Build vector store for the uploaded file
+                # Process the file and build the vector store
                 vs, info = build_vector_store_for_file(file.name)
+                
+                # Return the file object, vector store, and status message
                 return (
-                    file,
-                    vs,
+                    file,  # Return the file object for display
+                    vs,    # The vector store for querying
                     f"Successfully processed {os.path.basename(file.name)}. You can now ask questions."
                 )
             except Exception as e:
-                return None, None, f"Error: {str(e)}"
+                return None, None, f"Error processing file: {str(e)}"
         
+        # Connect the file upload handler
         file_upload.upload(
             fn=handle_file_upload,
             inputs=[file_upload],
