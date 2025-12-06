@@ -42,16 +42,52 @@ load_dotenv()
 tts_engine = pyttsx3.init()
 tts_engine.setProperty('rate', 150)  # Speed of speech
 
-# Queue for text-to-speech
-tts_queue = queue.Queue()
+# Global variables for voice control
+engine = None
+stop_speaking = False
 
-def _speak_text(text: str):
-    """Speak the given text using text-to-speech."""
+# Function to stop voice output
+def stop_voice():
+    global engine, stop_speaking
+    stop_speaking = True
+    if engine:
+        try:
+            engine.stop()
+            engine = None  # Reset the engine
+        except:
+            pass
+    return ""
+
+# Function to speak text using pyttsx3
+def _speak_text(text):
+    global engine, stop_speaking
+    stop_speaking = False  # Reset the stop flag
     try:
-        tts_engine.say(text)
-        tts_engine.runAndWait()
+        if engine is None:
+            engine = pyttsx3.init()
+        
+        # Split text into sentences for better interruption handling
+        import re
+        sentences = re.split(r'(?<=[.!?])\s+', text)
+        
+        for sentence in sentences:
+            if stop_speaking:
+                break
+            if engine is None:  # In case engine was stopped
+                engine = pyttsx3.init()
+            engine.say(sentence)
+            engine.runAndWait()
+            
     except Exception as e:
         print(f"Error in text-to-speech: {e}")
+    finally:
+        if stop_speaking:  # If stopped, reset the engine
+            try:
+                if engine:
+                    engine.stop()
+            except:
+                pass
+            engine = None
 
 def _history_to_markdown(history) -> str:
     """Render chat history (list of [user, assistant]) as Markdown."""
@@ -416,6 +452,14 @@ def build_interface():
                 with gr.Row():
                     submit_btn = gr.Button("Send", variant="primary", scale=1)
                     stop_btn = gr.Button("Stop", variant="stop", scale=1)
+                    
+                    # Connect stop button
+                    stop_btn.click(
+                        fn=stop_voice,
+                        inputs=None,
+                        outputs=[],
+                        queue=False  # Don't queue stop commands
+                    )
                 
                 gr.Examples(
                     examples=[
@@ -482,9 +526,9 @@ def build_interface():
         # Handle question submission
         def on_ask_click(question, history, vs, model_choice_val):
             if not question.strip():
-                return "Please enter a question.", history, None
+                return "Please enter a question.", history or [], None
             if vs is None:
-                return "Please upload a document first.", history, None
+                return "Please upload a document first.", history or [], None
                 
             try:
                 # Get the appropriate model based on user choice
@@ -510,21 +554,27 @@ def build_interface():
                     history=history,
                 )
                 
-                # Update chat history
+                # Update chat history with properly formatted messages
                 history = history or []
-                history.append((question, response))
+                # Add user message
+                history.append({"role": "user", "content": question})
+                # Add assistant message
+                history.append({"role": "assistant", "content": response})
                 
                 # Speak the response if voice output is enabled
                 voice_enabled = voice_output.value if hasattr(voice_output, 'value') else True
                 if voice_enabled:
-                    threading.Thread(target=_speak_text, args=(response,)).start()
+                    # Stop any ongoing speech before starting new one
+                    stop_voice()
+                    threading.Thread(target=_speak_text, args=(response,), daemon=True).start()
                 
                 return "", history, None
                 
             except Exception as e:
                 error_msg = f"Error: {str(e)}"
                 history = history or []
-                history.append((question, error_msg))
+                history.append({"role": "user", "content": question})
+                history.append({"role": "assistant", "content": error_msg})
                 return "", history, None
 
         # Connect the ask button
