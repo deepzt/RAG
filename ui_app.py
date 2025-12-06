@@ -2,8 +2,15 @@ import os
 import re
 import tempfile
 import math
-
+import threading
+import queue
+import time
+import sounddevice as sd
 import numpy as np
+from scipy.io.wavfile import write
+import speech_recognition as sr
+import pyttsx3
+
 import pandas as pd
 import gradio as gr
 from dotenv import load_dotenv
@@ -30,6 +37,21 @@ vector_store_cache = {}
 # Load environment variables (for OPENAI_API_KEY, etc.)
 load_dotenv()
 
+
+# Initialize text-to-speech engine
+tts_engine = pyttsx3.init()
+tts_engine.setProperty('rate', 150)  # Speed of speech
+
+# Queue for text-to-speech
+tts_queue = queue.Queue()
+
+def _speak_text(text: str):
+    """Speak the given text using text-to-speech."""
+    try:
+        tts_engine.say(text)
+        tts_engine.runAndWait()
+    except Exception as e:
+        print(f"Error in text-to-speech: {e}")
 
 def _history_to_markdown(history) -> str:
     """Render chat history (list of [user, assistant]) as Markdown."""
@@ -266,20 +288,159 @@ def answer_question(file, question: str, history):
         yield status_msg, _history_to_markdown(history), history
 
 
+def record_audio(duration=5, fs=44100):
+    """Record audio from the microphone using sounddevice."""
+    print("Recording... Speak now!")
+    recording = sd.rec(int(duration * fs), samplerate=fs, channels=1, dtype='int16')
+    sd.wait()  # Wait until recording is finished
+    
+    # Save the recording to a temporary file
+    temp_file = tempfile.mktemp(prefix='voice_input_', suffix='.wav')
+    write(temp_file, fs, recording)  # Save as WAV file
+    
+    return temp_file
+
+def listen_microphone():
+    """Listen to microphone and return the recognized text using sounddevice for recording."""
+    try:
+        # Record audio using sounddevice
+        audio_file = record_audio(duration=5)
+        
+        # Use SpeechRecognition to transcribe the audio file
+        recognizer = sr.Recognizer()
+        with sr.AudioFile(audio_file) as source:
+            audio_data = recognizer.record(source)
+            text = recognizer.recognize_google(audio_data)
+            print(f"Recognized: {text}")
+            return text
+            
+    except sr.UnknownValueError:
+        return "Could not understand audio"
+    except sr.RequestError as e:
+        return f"Error with the speech recognition service; {e}"
+    except Exception as e:
+        return f"Error processing audio: {str(e)}"
+
 def build_interface():
     description = (
         "Upload a CSV, XLS/XLSX, PDF, or TXT file. The app will build a semantic index over the "
         "file content and answer your questions using retrieved snippets plus a local Ollama/OpenAI model."
     )
 
-    with gr.Blocks(title="File QA (CSV / Excel / PDF)") as demo:
-        gr.Markdown("# File QA (CSV / Excel / PDF)")
-        gr.Markdown(description)
-
+    with gr.Blocks(title="RAG Chat") as demo:
+        gr.Markdown("# RAG Chat Application with Voice")
+        
         with gr.Row():
-            file_input = gr.File(
-                label="Upload file",
-                file_types=[".csv", ".xls", ".xlsx", ".pdf", ".txt"],
+            with gr.Column(scale=3):
+                file_output = gr.File(label="Upload a document")
+                file_upload = gr.UploadButton(
+                    "📁 Upload Document",
+                    file_types=[".txt", ".pdf", ".csv", ".xls", ".xlsx"],
+                    file_count="single",
+                )
+                file_upload.upload(
+                    on_file_upload,
+                    inputs=[file_upload],
+                    outputs=[file_output],
+                )
+                
+                model_choice = gr.Radio(
+                    ["OpenAI (if API key available)", "Local (Ollama)"],
+                    label="Choose AI Model",
+                    value="Local (Ollama)",
+                )
+                
+                temperature = gr.Slider(
+                    minimum=0.0,
+                    maximum=1.0,
+                    value=0.7,
+                    step=0.1,
+                    label="Creativity (temperature)",
+                )
+                
+                k_slider = gr.Slider(
+                    minimum=1,
+                    maximum=10,
+                    value=4,
+                    step=1,
+                    label="Number of document chunks to retrieve",
+                )
+                
+                chunk_size = gr.Slider(
+                    minimum=100,
+                    maximum=2000,
+                    value=1000,
+                    step=100,
+                    label="Chunk size (tokens)",
+                )
+                
+                chunk_overlap = gr.Slider(
+                    minimum=0,
+                    maximum=500,
+                    value=200,
+                    step=50,
+                    label="Chunk overlap (tokens)",
+                )
+                
+                with gr.Row():
+                    clear_btn = gr.Button("Clear Chat")
+                    voice_input_btn = gr.Button("🎤 Voice Input")
+                
+                # Voice output toggle
+                voice_output = gr.Checkbox(
+                    label="Enable Voice Output",
+                    value=True,
+                    info="Read responses aloud"
+                )
+                
+            with gr.Column(scale=7):
+                chatbot = gr.Chatbot(
+                    height=500,
+                    avatar_images=(
+                        "https://i.ibb.co/8M7fB6Y/user.png",
+                        "https://i.ibb.co/0XyJtJz/assistant.png",
+                    ),
+                )
+                
+                msg = gr.Textbox(
+                    label="Your message",
+                    placeholder="Type your question or click the microphone to speak...",
+                    container=False,
+                    scale=7,
+                )
+                
+                with gr.Row():
+                    submit_btn = gr.Button("Send", variant="primary", scale=1)
+                    stop_btn = gr.Button("Stop", variant="stop", scale=1)
+                
+                gr.Examples(
+                    examples=[
+                        "Summarize the key points from this document.",
+                        "What is the main topic of this document?",
+                        "Find relevant information about...",
+                    ],
+                    inputs=msg,
+                    label="Example questions",
+                )
+        
+        # State to store the current file and vector store
+        current_file = gr.State()
+        vector_store = gr.State()
+        
+        # Function to handle voice input
+        def on_voice_input():
+            try:
+                text = listen_microphone()
+                return text
+            except Exception as e:
+                print(f"Error in voice input: {e}")
+                return "Error processing voice input"
+        
+        # Event handler for voice input button
+        voice_input_btn.click(
+            fn=on_voice_input,
+            inputs=[],
+            outputs=[msg]
             )
 
         upload_status = gr.Markdown(label="Upload status", value="No file uploaded yet.")
@@ -289,13 +450,65 @@ def build_interface():
 
         history_state = gr.State([])
 
-        file_input.change(fn=on_file_upload, inputs=file_input, outputs=upload_status)
+        # Connect the file upload button
+        file_upload.upload(
+            fn=on_file_upload,
+            inputs=[file_upload],
+            outputs=[file_output, vector_store, upload_status]
+        )
 
+        # Handle question submission
+        def on_ask_click(question, history, vs):
+            if not question.strip():
+                return "Please enter a question.", history
+            if vs is None:
+                return "Please upload a document first.", history
+                
+            try:
+                # Get the appropriate model based on user choice
+                model_choice_val = model_choice.value if hasattr(model_choice, 'value') else "Local (Ollama)"
+                
+                if model_choice_val == "OpenAI (if API key available)":
+                    model = openai_model
+                    model_name = openai_model_name
+                else:
+                    model = ollama_model
+                    model_name = ollama_model_name
+                
+                # Generate response
+                response = build_context_and_answer(
+                    vector_store=vs,
+                    question=question,
+                    openai_model=model if model_choice_val == "OpenAI (if API key available)" else None,
+                    openai_model_name=model_name if model_choice_val == "OpenAI (if API key available)" else None,
+                    ollama_model=model if model_choice_val == "Local (Ollama)" else None,
+                    ollama_model_name=model_name if model_choice_val == "Local (Ollama)" else None,
+                    history=history,
+                )
+                
+                # Update chat history
+                history = history or []
+                history.append((question, response))
+                
+                # Speak the response if voice output is enabled
+                voice_enabled = voice_output.value if hasattr(voice_output, 'value') else True
+                if voice_enabled:
+                    threading.Thread(target=_speak_text, args=(response,)).start()
+                
+                return "", history
+                
+            except Exception as e:
+                error_msg = f"Error: {str(e)}"
+                history = history or []
+                history.append((question, error_msg))
+                return "", history
+
+        # Connect the ask button
         ask_btn = gr.Button("Ask")
         ask_btn.click(
-            fn=answer_question,
-            inputs=[file_input, question, history_state],
-            outputs=[status, chat_markdown, history_state],
+            fn=on_ask_click,
+            inputs=[question, history_state, vector_store],
+            outputs=[question, chatbot]
         )
 
     return demo

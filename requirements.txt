@@ -16,3 +16,6 @@ sentence-transformers
 tf-keras
 faiss-cpu
 pypdf
+SpeechRecognition
+sounddevice
+pyttsx3
