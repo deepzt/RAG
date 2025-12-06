@@ -10,6 +10,7 @@ import atexit
 from typing import Optional, List, Dict, Any, Union, Tuple
 import sounddevice as sd
 import numpy as np
+import soundfile as sf
 from scipy.io.wavfile import write
 import speech_recognition as sr
 import pyttsx3
