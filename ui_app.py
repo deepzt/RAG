@@ -1,5 +1,6 @@
 import os
 import re
+import signal
 import tempfile
 import math
 import threading
@@ -7,8 +8,6 @@ import queue
 import time
 import atexit
 from typing import Optional, List, Dict, Any, Union, Tuple
-import queue
-import time
 import sounddevice as sd
 import numpy as np
 from scipy.io.wavfile import write
