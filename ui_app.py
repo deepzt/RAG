@@ -114,10 +114,16 @@ ollama_model, ollama_model_name = get_ollama_model()
 
 
 def on_file_upload(file):
-    """Return a short status message when a file is uploaded."""
+    """Handle file upload and return file path, vector store, and status."""
     if file is None:
-        return "No file uploaded yet."
-    return f"File uploaded: {os.path.basename(file.name)}. You can now ask questions."
+        return None, None, "No file uploaded yet."
+    try:
+        # Return the file path as a string, not a file object
+        file_path = file.name
+        vs, info = build_vector_store_for_file(file_path)
+        return file_path, vs, f"Successfully processed {os.path.basename(file_path)}. You can now ask questions."
+    except Exception as e:
+        return None, None, f"Error processing file: {str(e)}"
 
 
 def answer_question(file, question: str, history):
@@ -451,8 +457,22 @@ def build_interface():
         history_state = gr.State([])
 
         # Connect the file upload button
+        def handle_file_upload(file):
+            if file is None:
+                return None, None, "No file uploaded yet."
+            try:
+                # Build vector store for the uploaded file
+                vs, info = build_vector_store_for_file(file.name)
+                return (
+                    file,
+                    vs,
+                    f"Successfully processed {os.path.basename(file.name)}. You can now ask questions."
+                )
+            except Exception as e:
+                return None, None, f"Error: {str(e)}"
+        
         file_upload.upload(
-            fn=on_file_upload,
+            fn=handle_file_upload,
             inputs=[file_upload],
             outputs=[file_output, vector_store, upload_status]
         )
